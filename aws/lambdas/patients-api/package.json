@@ -1,0 +1,9 @@
+{
+  "name": "healthnet-patients-api",
+  "version": "1.0.0",
+  "description": "Patients CRUD API for HealthNet",
+  "main": "index.js",
+  "dependencies": {
+    "pg": "^8.11.3"
+  }
+}

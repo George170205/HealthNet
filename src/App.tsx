@@ -30,6 +30,7 @@ function Layout({ children }: { children: React.ReactNode }) {
 export default function App() {
   const auth = useAuthState()
   const theme = useDeviceStore(s => s.theme)
+  const loadPatientsFromDb = useDeviceStore(s => s.loadPatientsFromDb)
 
   // Listen to global theme change and apply dark class to document
   useEffect(() => {
@@ -46,6 +47,9 @@ export default function App() {
     let active = true
 
     if (auth.user) {
+      // Cargar pacientes desde la Base de Datos al iniciar sesión
+      loadPatientsFromDb()
+
       const initIot = async () => {
         try {
           const creds = await getCredentials()
@@ -64,7 +68,7 @@ export default function App() {
     return () => {
       active = false
     }
-  }, [auth.user, auth.loading])
+  }, [auth.user, auth.loading, loadPatientsFromDb])
 
   return (
     <AuthContext.Provider value={auth}>
