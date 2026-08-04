@@ -18,6 +18,9 @@ export const AWS_CONFIG = {
     endpoint: import.meta.env.VITE_IOT_ENDPOINT || '', // xxxxxx-ats.iot.region.amazonaws.com
     topicPrefix: 'healthnet/devices',
   },
+
+  // API Gateway
+  apiEndpoint: import.meta.env.VITE_API_ENDPOINT || '',
 } as const
 
 // ──────────────────────────────────────────────────────────────────────
@@ -40,3 +43,7 @@ export const isAwsConfigured = () =>
     AWS_CONFIG.cognito.userPoolClientId &&
     AWS_CONFIG.iot.endpoint
   )
+
+/** Devuelve true si el endpoint de la API de pacientes está configurado */
+export const isApiConfigured = () =>
+  Boolean(AWS_CONFIG.apiEndpoint)

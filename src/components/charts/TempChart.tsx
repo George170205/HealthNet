@@ -9,9 +9,10 @@ import { THRESHOLDS } from '../../types'
 interface Props {
   history: DeviceTelemetry[]
   compact?: boolean
+  height?: number
 }
 
-export default function TempChart({ history, compact = false }: Props) {
+export default function TempChart({ history, compact = false, height = 220 }: Props) {
   const data = history.map(h => ({
     time: format(h.timestamp, 'HH:mm:ss'),
     temp: h.temperature,
@@ -42,7 +43,7 @@ export default function TempChart({ history, compact = false }: Props) {
   }
 
   return (
-    <ResponsiveContainer width="100%" height={220}>
+    <ResponsiveContainer width="100%" height={height}>
       <AreaChart data={data} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
         <defs>
           <linearGradient id="tempGrad" x1="0" y1="0" x2="0" y2="1">

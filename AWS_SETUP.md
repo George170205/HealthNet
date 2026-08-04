@@ -155,7 +155,7 @@ Aprovisionamiento de la base de datos relacional para persistir el historial de 
    - **Storage amount**: `256 GB` (almacenamiento asignado).
 3. Presiona **Create database**.
 
-### Creación de la Tabla de Telemetría
+### Creación de la Tabla de Telemetría y la Tabla de Pacientes
 Una vez que el clúster esté disponible, conéctate usando un cliente PostgreSQL dentro de la VPC (o una instancia bastión) y ejecuta:
 
 ```sql
@@ -171,6 +171,45 @@ CREATE TABLE telemetry (
 );
 
 CREATE INDEX idx_telemetry_device_timestamp ON telemetry (device_id, timestamp DESC);
+
+-- Tabla para almacenar el perfil del paciente y la configuración de alertas
+CREATE TABLE patients (
+    device_id VARCHAR(50) PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    age VARCHAR(20),
+    gender VARCHAR(50),
+    weight VARCHAR(50),
+    height VARCHAR(50),
+    phone VARCHAR(50),
+    emergency_contact VARCHAR(100),
+    
+    -- Configuración de alertas
+    hr_min INT DEFAULT 50,
+    hr_max INT DEFAULT 110,
+    temp_max NUMERIC(4, 2) DEFAULT 38.00,
+    notifications_active BOOLEAN DEFAULT TRUE,
+    watch_theme VARCHAR(20) DEFAULT 'dark',
+    
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_patients_device_id ON patients (device_id);
+
+-- Función para actualizar automáticamente el campo 'updated_at' al modificar registros
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+-- Trigger para ejecutar la función de actualización de timestamp
+CREATE OR REPLACE TRIGGER update_patients_updated_at
+    BEFORE UPDATE ON patients
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
 ```
 
 ---
@@ -245,6 +284,98 @@ exports.handler = async (event) => {
 };
 ```
 *(Configura las variables de entorno `DB_HOST`, `DB_USER`, `DB_PASSWORD` y `DB_NAME` en la pestaña Configuration → Environment variables de la Lambda).*
+
+### 5.2. Función Lambda para API de Pacientes (healthnet-patients-api)
+
+Esta función se encarga de realizar operaciones CRUD (Crear, Leer, Eliminar) en la tabla `patients` de Aurora PostgreSQL para persistir el perfil clínico del paciente y la configuración de umbrales del brazalete.
+
+1. Ve a **AWS Console → Lambda → Functions → Create function**.
+2. Configura:
+   - **Author from scratch**.
+   - **Function name**: `healthnet-patients-api`
+   - **Runtime**: Node.js 18.x o superior.
+   - **Architecture**: `x86_64`.
+3. **Advanced settings**:
+   - Marca **Enable VPC**.
+   - **VPC**: Selecciona `healthnet-vpc`.
+   - **Subnets**: Selecciona las dos subnets privadas donde reside Aurora PostgreSQL.
+   - **Security groups**: Selecciona el mismo security group que tiene acceso a PostgreSQL (`healthnet-db-sg`).
+4. Presiona **Create function**.
+5. **Configurar Variables de Entorno**:
+   - Ve a la pestaña **Configuration → Environment variables** y añade:
+     - `DB_HOST`: Host/endpoint de tu Aurora PostgreSQL.
+     - `DB_USER`: `postgres`
+     - `DB_PASSWORD`: La contraseña configurada para tu base de datos.
+     - `DB_NAME`: `postgres` (o el nombre de tu base de datos).
+     - `DB_PORT`: `5432`
+6. **Subir el Código**:
+   - En tu máquina local, abre una terminal en el directorio `aws/lambdas/patients-api/`.
+   - Instala la dependencia de PostgreSQL:
+     ```bash
+     npm install
+     ```
+   - Comprime los archivos `index.js`, `package.json` y la carpeta `node_modules` en un archivo ZIP (ej. `patients-api.zip`).
+   - Sube el archivo ZIP a la función Lambda mediante la interfaz web: **Code → Upload from → .zip file**.
+
+---
+
+## 5.5. Amazon API Gateway (Exponer API de Pacientes)
+
+Para permitir que el navegador web (React SPA) consulte y actualice la información de los pacientes en Aurora PostgreSQL, configuraremos un punto de enlace HTTP seguro mediante API Gateway.
+
+1. Ve a **AWS Console → API Gateway → APIs → Create API**.
+2. En la sección **REST API** (no la privada), presiona **Build**.
+3. Configura:
+   - **API details**: Selecciona **New API**.
+   - **API name**: `healthnet-api`
+   - **Endpoint Type**: Regional.
+4. Presiona **Create API**.
+
+### Crear Recursos y Métodos:
+
+1. **Recurso /patients**:
+   - Selecciona la raíz (`/`) y presiona **Create resource**.
+   - **Resource name**: `patients`
+   - Presiona **Create resource**.
+   - Selecciona `/patients` y presiona **Create method**:
+     - **Method type**: `ANY` (o crea individualmente `GET` y `POST`).
+     - **Integration type**: `Lambda function`.
+     - Activa **Lambda proxy integration** (¡Esencial para que la Lambda procese las rutas y cabeceras!).
+     - **Lambda function**: Selecciona tu Lambda `healthnet-patients-api`.
+     - Presiona **Create method**.
+
+2. **Recurso /{deviceId} (Ruta de Paciente Individual)**:
+   - Selecciona `/patients` y presiona **Create resource**.
+   - **Resource name**: `{deviceId}`
+   - **Resource path**: `{deviceId}` (se creará como `/patients/{deviceId}`).
+   - Presiona **Create resource**.
+   - Selecciona `{deviceId}` y presiona **Create method**:
+     - **Method type**: `ANY` (o crea individualmente `GET` y `DELETE`).
+     - **Integration type**: `Lambda function`.
+     - Activa **Lambda proxy integration**.
+     - **Lambda function**: Selecciona tu Lambda `healthnet-patients-api`.
+     - Presiona **Create method**.
+
+### Habilitar CORS (Cross-Origin Resource Sharing):
+
+Dado que el frontend llama a esta API desde orígenes distintos (como `localhost` o un bucket de S3), debes habilitar CORS en API Gateway:
+
+1. Selecciona el recurso `/patients` y presiona **Enable CORS**.
+2. Marca los métodos `GET, POST, OPTIONS`.
+3. Deja los valores predeterminados de Access-Control-Allow-Headers y Access-Control-Allow-Origin (`'*'`).
+4. Presiona **Save**.
+5. Selecciona el recurso `{deviceId}` y presiona **Enable CORS**.
+6. Marca los métodos `GET, DELETE, OPTIONS`.
+7. Presiona **Save**.
+
+### Desplegar la API:
+
+1. Haz clic en **Deploy API** (botón arriba a la derecha).
+2. En **Stage**, selecciona ***New stage***.
+3. **Stage name**: `prod`.
+4. Presiona **Deploy**.
+5. Copia la **Invoke URL** generada (se verá como `https://xxxxxxxxxx.execute-api.us-west-1.amazonaws.com/prod`).
+6. Pega este valor en tu archivo `.env` en la propiedad `VITE_API_ENDPOINT`.
 
 ---
 

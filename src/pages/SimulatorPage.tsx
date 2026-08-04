@@ -15,10 +15,9 @@ const PATIENT_NAMES = [
 
 const DEFAULT_INTERVAL = 3000
 
-let deviceCounter = 0
 function nextDeviceId(): string {
-  deviceCounter += 1
-  return `ESP32-${String(deviceCounter).padStart(3, '0')}`
+  const rand = Math.floor(1000 + Math.random() * 9000)
+  return `ESP32-${rand}`
 }
 
 interface DeviceRow {
@@ -28,12 +27,14 @@ interface DeviceRow {
 }
 
 export default function SimulatorPage() {
+  const storeDevices = useDeviceStore(s => Object.values(s.devices))
+  const removeDevice = useDeviceStore(s => s.removeDevice)
+
   const [rows, setRows]               = useState<DeviceRow[]>([])
   const [newName, setNewName]         = useState('')
   const [newInterval, setNewInterval] = useState(DEFAULT_INTERVAL)
   const [showConfig, setShowConfig]   = useState(false)
   const [ticker, setTicker]           = useState(0)
-  const removeDevice                  = useDeviceStore(s => s.removeDevice)
 
   // Sync running state every second
   useEffect(() => {
@@ -44,17 +45,39 @@ export default function SimulatorPage() {
   const syncRows = useCallback(() => {
     const svcDevices = simulatorService.getDevices()
     setRows(prev => {
-      return prev.map(row => ({
-        ...row,
-        running: simulatorService.isRunning(row.config.deviceId),
-        packetsSent: row.packetsSent + (simulatorService.isRunning(row.config.deviceId) ? 1 : 0),
+      const packetsMap = new Map(prev.map(r => [r.config.deviceId, r.packetsSent]))
+      return svcDevices.map(d => ({
+        config: d,
+        running: d.running,
+        packetsSent: (packetsMap.get(d.deviceId) || 0) + (d.running ? 1 : 0)
       }))
     })
-    // Remove rows that were deleted from service
-    setRows(prev => prev.filter(r => svcDevices.some(d => d.deviceId === r.config.deviceId)))
   }, [])
 
-  useEffect(() => { syncRows() }, [ticker, syncRows])
+  // Sync database patients to simulator on mount/update
+  useEffect(() => {
+    let changed = false
+    storeDevices.forEach(d => {
+      if (!simulatorService.getDevices().some(sd => sd.deviceId === d.deviceId)) {
+        simulatorService.addDevice({
+          deviceId: d.deviceId,
+          patientName: d.patientName,
+          intervalMs: DEFAULT_INTERVAL,
+          running: false
+        })
+        changed = true
+      }
+    })
+    if (changed || ticker === 0) {
+      syncRows()
+    }
+  }, [storeDevices, ticker, syncRows])
+
+  useEffect(() => {
+    if (ticker > 0) {
+      syncRows()
+    }
+  }, [ticker, syncRows])
 
   const addDevice = () => {
     const name = newName.trim() || PATIENT_NAMES[rows.length % PATIENT_NAMES.length]
@@ -65,7 +88,7 @@ export default function SimulatorPage() {
       running:     false,
     }
     simulatorService.addDevice(config)
-    setRows(prev => [...prev, { config, running: false, packetsSent: 0 }])
+    syncRows()
     setNewName('')
   }
 
@@ -84,7 +107,7 @@ export default function SimulatorPage() {
   const deleteDevice = (deviceId: string) => {
     simulatorService.removeDevice(deviceId)
     removeDevice(deviceId)
-    setRows(prev => prev.filter(r => r.config.deviceId !== deviceId))
+    syncRows()
   }
 
   const triggerFall = (deviceId: string) => {

@@ -10,9 +10,10 @@ import { THRESHOLDS } from '../../types'
 interface Props {
   history: DeviceTelemetry[]
   compact?: boolean
+  height?: number
 }
 
-export default function HeartRateChart({ history, compact = false }: Props) {
+export default function HeartRateChart({ history, compact = false, height = 220 }: Props) {
   const data = history.map(h => ({
     time: format(h.timestamp, compact ? 'HH:mm:ss' : 'HH:mm:ss', { locale: es }),
     bpm: h.heartRate,
@@ -36,7 +37,7 @@ export default function HeartRateChart({ history, compact = false }: Props) {
   }
 
   return (
-    <ResponsiveContainer width="100%" height={220}>
+    <ResponsiveContainer width="100%" height={height}>
       <LineChart data={data} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#BBCEE5" />
         <XAxis
