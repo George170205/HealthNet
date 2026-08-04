@@ -1,36 +1,35 @@
-# HEALTH NET — Documentación General del Proyecto
+# HEALTH NET — Documentación General del Proyecto y Manual Técnico
 
-Este archivo contiene la documentación completa, instrucciones de instalación, guía de comandos, arquitectura y detalles técnicos sobre el proyecto **HealthNet Dashboard**.
+Este archivo contiene la documentación completa, instrucciones de instalación, guía de comandos, arquitectura, vinculación funcional de variables de entorno, justificaciones de diseño y troubleshooting sobre el proyecto **HealthNet Dashboard**.
 
 ---
 
 ## Índice
 1. [Descripción del Proyecto](#1-descripción-del-proyecto)
 2. [Arquitectura del Sistema](#2-arquitectura-del-sistema)
-3. [Estructura del Proyecto](#3-estructura-del-proyecto)
-4. [Instalación y Configuración](#4-instalación-y-configuración)
-5. [Modos de Funcionamiento](#5-modos-de-funcionamiento)
-6. [Guía de Configuración AWS](#6-guía-de-configuración-aws)
-7. [Comandos del Proyecto](#7-comandos-del-proyecto)
-8. [Reglas de Alerta y Telemetría](#8-reglas-de-alerta-y-telemetría)
+3. [Diseño de Flujo de la Aplicación](#3-diseño-de-flujo-de-la-aplicación)
+4. [Estructura del Proyecto y Carpetas](#4-estructura-del-proyecto-y-carpetas)
+5. [Instalación y Ejecución Local](#5-instalación-y-ejecución-local)
+6. [Obtención de IDs para el .env mediante AWS CLI](#6-obtención-de-ids-para-el-env-mediante-aws-cli)
+7. [Aprovisionamiento Completo de la Infraestructura en AWS](#7-aprovisionamiento-completo-de-la-infraestructura-en-aws)
+8. [Justificación de Diseño y Vinculación Funcional](#8-justificación-de-diseño-y-vinculación-funcional)
+9. [Registro de Problemas y Troubleshooting (AWS/VM)](#9-registro-de-problemas-y-troubleshooting-awsvm)
+10. [Comandos del Proyecto (npm)](#10-comandos-del-proyecto-npm)
+11. [Reglas de Alerta y Telemetría](#11-reglas-de-alerta-y-telemetría)
 
 ---
 
 ## 1. Descripción del Proyecto
 
-**HealthNet Dashboard** es una aplicación web (Single Page Application) desarrollada en **React, TypeScript y Vite** orientada al monitoreo en tiempo real de pacientes que utilizan dispositivos de salud portátiles (como un ESP32 o un simulador de telemetría).
+**HealthNet Dashboard** es una aplicación web (Single Page Application) desarrollada en **React, TypeScript y Vite** orientada al monitoreo clínico en tiempo real de pacientes que utilizan dispositivos portátiles de salud (como relojes inteligentes basados en ESP32 o simuladores de telemetría).
 
-El sistema permite:
-* Visualizar en tiempo real el ritmo cardíaco, temperatura, estado de batería y acelerómetro de múltiples dispositivos.
-* Detectar de forma inmediata eventos críticos como caídas o lecturas fuera de rangos normales.
-* Gestionar alertas persistentes por dispositivo con la capacidad de reconocerlas (acknowledgement) individualmente.
-* Simular múltiples dispositivos virtuales interactivos para pruebas locales o remotas.
+El sistema centraliza e interpreta los signos vitales, evalúa umbrales dinámicos adaptados a la condición médica de cada paciente, registra incidentes de caídas y genera reportes médicos listos para impresión en formato PDF en alta definición sin cortes de página.
 
 ---
 
 ## 2. Arquitectura del Sistema
 
-La solución integra dispositivos inteligentes en el borde (Edge) con la nube de AWS para procesamiento y visualización en tiempo real en la región `us-west-1`:
+La solución integra dispositivos inteligentes en el borde (Edge) con la nube de AWS en la región de `us-west-1` (Norte de California):
 
 ```
 ESP32 / Simulador  ──(MQTT / WebSockets)──>  AWS IoT Core
@@ -45,203 +44,254 @@ ESP32 / Simulador  ──(MQTT / WebSockets)──>  AWS IoT Core
 ```
 
 ### Componentes Clave:
-* **Frontend**: React + TypeScript + TailwindCSS, hospedado en **Amazon S3** con resolución DNS vía **Amazon Route 53** y protegido con **AWS WAF**. Consume datos en tiempo real mediante WebSockets seguros (WSS) firmados con SigV4 y gestionados en base al estado de autenticación.
-* **AWS Cognito**: Gestiona la autenticación de usuarios (User Pool) y provee credenciales temporales de AWS (Identity Pool) con permisos limitados para interactuar de forma segura con el broker AWS IoT Core.
-* **AWS IoT Core**: Actúa como el bróker de mensajería MQTT donde se publica y consume la telemetría.
-* **Amazon VPC**: Red virtual segura que aísla la base de datos y la ejecución de la función Lambda.
-* **AWS Lambda**: Función serverless ejecutada en la VPC que recibe la telemetría desde la regla de IoT Core e inserta los registros en PostgreSQL.
-* **Amazon Aurora PostgreSQL-Compatible DB**: Base de datos relacional administrada para almacenar el historial de lecturas de telemetría de forma persistente.
+* **Frontend (React + TS + Vite)**: Hospedado estáticamente en **Amazon S3**, distribuido mediante **Amazon CloudFront**, con resolución DNS vía **Amazon Route 53** y mitigación de ataques con **AWS WAF**.
+* **AWS Cognito**: User Pools para administración y Login de personal médico; Identity Pools para otorgar credenciales temporales de AWS con permisos MQTT.
+* **AWS IoT Core**: Broker MQTT para comunicación bidireccional en tiempo real a través de WebSockets (WSS).
+* **Amazon VPC**: Red de seguridad que aísla la base de datos relacional y la ejecución de la función de ingesta.
+* **AWS Lambda**: Función de ingesta serverless Node.js integrada a la VPC para persistir registros en base de datos.
+* **Amazon Aurora PostgreSQL-Compatible DB**: Base de datos relacional persistente para almacenar el histórico de telemetrías.
 
 ---
 
 ## 3. Diseño de Flujo de la Aplicación
 
-El funcionamiento del sistema se divide en cuatro flujos principales interconectados:
+### A. Autenticación y Autorización
+1. El médico inicia sesión en `LoginPage` usando AWS Cognito User Pool.
+2. Tras la validación, Cognito Identity Pool intercambia el token JWT por credenciales temporales de AWS (Access Key ID, Secret Access Key y Session Token) vinculadas a un rol IAM de solo lectura MQTT de IoT Core.
 
-### A. Flujo de Autenticación y Autorización
-1. **Credenciales**: El usuario introduce sus datos de acceso en el formulario de inicio de sesión (`LoginPage`).
-2. **Cognito User Pool**: El servicio `auth.ts` envía las credenciales a AWS Cognito User Pool para validar la identidad.
-3. **Cognito Identity Pool**: Tras la autenticación exitosa, se solicitan credenciales de AWS temporales (Access Key ID, Secret Access Key y Session Token) al Identity Pool. Estas credenciales están asociadas a un rol de IAM con permisos específicos de IoT Core.
+### B. Conexión en Tiempo Real (WebSockets)
+1. El hook `useAuth` suministra las credenciales de AWS al servicio `iot.ts`.
+2. Se realiza una firma criptográfica **Signature Version 4 (SigV4)** para validar el origen y se abre la conexión WebSocket seguro (`wss://`) con AWS IoT Core.
+3. El frontend se suscribe al tema `healthnet/devices/+/telemetry` para capturar la telemetría en vivo.
 
-### B. Flujo de Conexión y Suscripción (Tiempo Real)
-1. **Detección de Sesión**: La aplicación React detecta que el usuario está autenticado y posee credenciales válidas.
-2. **Firma SigV4**: El servicio de IoT (`iotService.ts`) utiliza las credenciales temporales de AWS para calcular una firma digital estándar de AWS (Signature Version 4).
-3. **Establecimiento de WebSocket**: Se genera una URL de conexión WebSocket con la firma SigV4 integrada y se establece el canal seguro (WSS) con AWS IoT Core.
-4. **Suscripción MQTT**: Una vez conectado, el cliente MQTT del frontend se suscribe al tema comodín `healthnet/devices/+/telemetry` para recibir mensajes de cualquier paciente.
+### C. Ingesta e Historial
+1. Los dispositivos publican mediciones en formato JSON a `healthnet/devices/{deviceId}/telemetry`.
+2. El broker distribuye los datos en tiempo real al Dashboard.
+3. Simultáneamente, una **IoT Rule** redirige el payload a una función **AWS Lambda** que los inserta en la tabla `telemetry` de **Aurora PostgreSQL** dentro de la VPC.
 
-### C. Flujo de Telemetría y Persistencia de Datos
-1. **Publicación**: El dispositivo (físico o simulado) emite periódicamente lecturas en formato JSON al tema `healthnet/devices/{deviceId}/telemetry`.
-2. **Distribución en Tiempo Real**: AWS IoT Core distribuye inmediatamente la telemetría recibida al Dashboard a través del WebSocket activo.
-3. **Almacenamiento Histórico**: Paralelamente, una **IoT Rule** en AWS intercepta el mensaje e invoca a una función **AWS Lambda** que reside en la VPC, la cual realiza la inserción de la telemetría en la base de datos **Amazon Aurora PostgreSQL-Compatible DB** en la tabla `telemetry`.
-
-### D. Flujo de Gestión de Alertas
-1. **Procesamiento de Telemetría**: Al recibir datos, el store de Zustand (`deviceStore.ts`) los evalúa frente a los límites definidos en `THRESHOLDS` (ritmo cardíaco elevado/bajo, temperatura alta, caída detectada).
-2. **Generación de Alert**: Si la lectura sobrepasa los umbrales, se crea una alerta con un identificador único y se agrega a la lista de alertas activas en el estado global.
-3. **Visualización e Interacción**: 
-   * Las alertas se visualizan de manera destacada en el dropdown del Navbar y en las tarjetas del dashboard.
-   * El usuario administrador puede presionar el ícono de campana en el Navbar para abrir un panel detallado que muestra qué paciente/dispositivo originó la alerta y su descripción.
-   * El usuario puede reconocer (Aceptar/Descartar) la alerta desde el panel, lo cual actualiza el estado marcándola como `acknowledged` y limpiando la alerta visual de la interfaz.
+### D. Alertas y Confirmaciones
+1. El store global de Zustand (`deviceStore.ts`) evalúa cada lectura contra los umbrales personalizados del paciente.
+2. Si se sobrepasan los límites (ej. Ritmo cardíaco > máx configurado), se genera una alerta inmediata.
+3. El médico visualiza las alertas en tiempo real y puede marcarlas como confirmadas (`acknowledged`).
 
 ---
 
-## 4. Estructura del Proyecto
+## 4. Estructura del Proyecto y Carpetas
 
-A continuación se detalla la estructura principal de directorios y archivos dentro de `src/`:
-
-```
-src/
-├── config/
-│   └── aws.ts            # Enlace de variables de entorno y configuración de AWS Amplify
-├── types/
-│   └── index.ts          # Interfaces de TypeScript (Telemetry, State, Alerts, Users)
-├── store/
-│   └── deviceStore.ts    # Estado global reactivo con Zustand (dispositivos, alertas y lógica de filtros)
-├── services/
-│   ├── auth.ts           # Servicio de autenticación con AWS Cognito (Amplify)
-│   ├── iot.ts            # Conector MQTT/WebSocket a AWS IoT Core firmado con SigV4
-│   └── simulator.ts      # Generador de dispositivos y telemetría simulada
-├── hooks/
-│   └── useAuth.ts        # Hook personalizado de React para interactuar con el contexto de autenticación
-├── components/
-│   ├── Logo.tsx          # Logotipo SVG corporativo
-│   ├── Navbar.tsx        # Barra de navegación superior con estado de usuario
-│   ├── ProtectedRoute.tsx# Wrapper para proteger rutas que requieren inicio de sesión
-│   └── charts/
-│       ├── HeartRateChart.tsx  # Gráfico histórico de ritmo cardíaco (Recharts)
-│       └── TempChart.tsx       # Gráfico histórico de temperatura (Recharts)
-├── pages/
-│   ├── LoginPage.tsx     # Formulario de inicio de sesión (Soporta modo AWS y demo)
-│   ├── DashboardPage.tsx # Panel principal con tarjetas de dispositivos y resumen de alertas
-│   └── SimulatorPage.tsx # Consola interactiva para crear y controlar sensores virtuales
-├── App.tsx               # Enrutador y proveedor de contexto global
-├── App.css               # Estilos globales y personalizaciones visuales
-└── main.tsx              # Punto de entrada de la aplicación
-```
+* **`src/components/`**: Componentes visuales reutilizables, incluyendo `SmartwatchSimulator.tsx` (caja del reloj físico y pantalla) y `Sidebar.tsx`.
+* **`src/components/charts/`**: Gráficas compactas y extendidas de Recharts (`HeartRateChart.tsx`, `TempChart.tsx`) con animaciones desactivables para el PDF.
+* **`src/pages/`**: Vistas principales de la aplicación unificada (DashboardPage, ProfilePage para gestión de pacientes y configuración, SimulatorPage).
+* **`src/services/`**: Lógica de infraestructura externa (`auth.ts` para Cognito, `iot.ts` para WebSockets/MQTT y `simulator.ts`).
+* **`src/store/`**: Estado reactivo global (`deviceStore.ts`) con persistencia en localStorage para las preferencias de umbrales clínicos y temas.
+* **`src/types/`**: Tipado de datos de telemetría y configuraciones del reloj (`index.ts`).
 
 ---
 
-## 5. Instalación y Configuración
+## 5. Instalación y Ejecución Local
 
 ### Prerrequisitos
-* **Node.js** v18 o superior.
-* Administrador de paquetes **npm** (incluido con Node.js).
+* **Node.js** v18 o superior e **npm**.
 
-### Pasos de Instalación
-
-1. **Clonar o descargar** el repositorio del proyecto en tu máquina local.
-2. Navegar al directorio raíz e instalar las dependencias:
+### Pasos de Configuración
+1. Instalar dependencias del proyecto:
    ```bash
-   cd healthnet-dashboard
    npm install
    ```
-3. Configurar las variables de entorno. Copia el archivo de ejemplo para crear el archivo `.env` local:
+2. Crear un archivo `.env` en la raíz copiando el archivo de ejemplo:
    ```bash
    cp .env.example .env
    ```
-4. Edita el archivo `.env` con las variables correspondientes a tus servicios en AWS (si deseas conectarte a una infraestructura real). Si no tienes configurado AWS, lee la siguiente sección sobre el **Modo Demo**.
-
----
-
-## 6. Modos de Funcionamiento
-
-La aplicación se puede ejecutar en dos modos dependiendo de la configuración de las variables de entorno:
-
-### A. Modo Demo (Sin conexión a AWS)
-Si el archivo `.env` no tiene cargadas las credenciales de AWS, el panel funcionará de manera local utilizando datos simulados en memoria:
-* **Credenciales por defecto**:
-  * **Email / Usuario**: `admin@healthnet.com`
-  * **Contraseña**: `Demo1234!`
-* **Funcionamiento**: El simulador incorporado despacha datos ficticios directamente al estado local (Zustand), permitiendo probar todas las vistas, gráficos y alertas sin costo y de forma instantánea.
-
-### B. Modo AWS Real
-Si completas los campos en `.env` (Región, Cognito User Pool, Client ID, Identity Pool e IoT Endpoint):
-* **Autenticación**: Inicio de sesión real contra AWS Cognito.
-* **Mensajería**: El dashboard firma la conexión a AWS IoT Core usando SigV4 y se suscribe al bróker vía MQTT/WebSockets reales para escuchar eventos en tiempo real.
-
----
-
-## 7. Guía de Configuración AWS
-
-Para desplegar la infraestructura requerida en AWS:
-
-### 1. AWS Cognito
-1. Ve a **AWS Console → Cognito → Create user pool**.
-2. Configura el inicio de sesión usando **Email**.
-3. Crea un App Client llamado `healthnet-dashboard` **sin client secret** (ya que es una SPA que corre en cliente web).
-4. Crea un **Identity Pool** en Cognito y vincúlalo al User Pool creado. Proporciona permisos al rol IAM autenticado para interactuar con IoT Core mediante la siguiente política:
-   ```json
-   {
-     "Version": "2012-10-17",
-     "Statement": [
-       {
-         "Effect": "Allow",
-         "Action": [
-           "iot:Connect",
-           "iot:Subscribe",
-           "iot:Receive",
-           "iot:Publish"
-         ],
-         "Resource": [
-           "arn:aws:iot:REGION:ACCOUNT_ID:client/healthnet-*",
-           "arn:aws:iot:REGION:ACCOUNT_ID:topic/healthnet/*",
-           "arn:aws:iot:REGION:ACCOUNT_ID:topicfilter/healthnet/*"
-         ]
-       }
-     ]
-   }
-   ```
-5. Si deseas crear un usuario administrador inicial desde la CLI de AWS:
+3. Editar el archivo `.env` con las credenciales correspondientes a tu infraestructura en AWS.
+4. Arrancar en servidor local:
    ```bash
-   aws cognito-idp admin-create-user \
-     --user-pool-id TU_USER_POOL_ID \
-     --username admin@healthnet.com \
-     --temporary-password Admin1234! \
-     --user-attributes Name=email,Value=admin@healthnet.com Name=email_verified,Value=true
+   npm run dev
    ```
-
-### 2. AWS IoT Core
-1. Copia tu **Device data endpoint** desde *IoT Core → Settings*.
-2. Crea una política llamada `healthnet-device-policy` que permita conectar y publicar en temas del proyecto:
-   ```json
-   {
-     "Version": "2012-10-17",
-     "Statement": [
-       {
-         "Effect": "Allow",
-         "Action": ["iot:Connect", "iot:Publish", "iot:Subscribe", "iot:Receive"],
-         "Resource": "*"
-       }
-     ]
-   }
-   ```
-
-#### Estructura de Topics de MQTT
-* **Publicación del Dispositivo**: `healthnet/devices/{deviceId}/telemetry`
-* **Suscripción del Dashboard**: `healthnet/devices/+/telemetry`
-
-### 3. Amazon Aurora PostgreSQL
-Crea el clúster en RDS en la región `us-west-1` dentro de la VPC y ejecuta el siguiente script DDL para crear la tabla de telemetría:
-
-```sql
-CREATE TABLE telemetry (
-    id SERIAL PRIMARY KEY,
-    device_id VARCHAR(50) NOT NULL,
-    patient_name VARCHAR(100),
-    heart_rate INT NOT NULL,
-    temperature NUMERIC(4, 2) NOT NULL,
-    fall_detected BOOLEAN DEFAULT FALSE,
-    battery INT,
-    timestamp BIGINT NOT NULL
-);
-
-CREATE INDEX idx_telemetry_device_timestamp ON telemetry (device_id, timestamp DESC);
-```
-
-Crea una función **AWS Lambda** para recibir e insertar los datos en Aurora PostgreSQL y configura una **IoT Rule** en AWS IoT Core para capturar los mensajes MQTT de `healthnet/devices/+/telemetry` e invocar a la Lambda.
 
 ---
 
-## 8. Comandos del Proyecto
+## 6. Obtención de IDs para el .env mediante AWS CLI
+
+A continuación se detallan los comandos de terminal de AWS CLI utilizados para obtener y rellenar las variables de entorno del archivo `.env`:
+
+### A. VITE_COGNITO_USER_POOL_ID
+Identifica el grupo de usuarios de Cognito para el Login del personal médico.
+* **Comando para obtenerlo**:
+  ```bash
+  aws cognito-idp list-user-pools --max-results 10
+  ```
+* **Salida JSON típica**:
+  ```json
+  {
+      "UserPools": [
+          {
+              "Id": "us-west-1_pGyxBNhWT",
+              "Name": "healthnet-user-pool"
+          }
+      ]
+  }
+  ```
+
+### B. VITE_COGNITO_APP_CLIENT_ID
+Identifica la aplicación cliente sin clave secreta para la SPA en React.
+* **Comando para obtenerlo**:
+  ```bash
+  aws cognito-idp list-user-pool-clients --user-pool-id us-west-1_pGyxBNhWT
+  ```
+* **Salida JSON típica**:
+  ```json
+  {
+      "UserPoolClients": [
+          {
+              "ClientId": "44mekj043fj0rj1csugnfuln1e",
+              "UserPoolId": "us-west-1_pGyxBNhWT",
+              "ClientName": "healthnet-dashboard"
+          }
+      ]
+  }
+  ```
+
+### C. VITE_COGNITO_IDENTITY_POOL_ID
+Pool de identidades para el intercambio de credenciales temporales de IAM.
+* **Comando para obtenerlo**:
+  ```bash
+  aws cognito-identity list-identity-pools --max-results 10
+  ```
+* **Salida JSON típica**:
+  ```json
+  {
+      "IdentityPools": [
+          {
+              "IdentityPoolId": "us-west-1:9cb26dab-294e-4d39-ada4-0dace6e9492a",
+              "IdentityPoolName": "healthnet_identity_pool"
+          }
+      ]
+  }
+  ```
+
+### D. VITE_IOT_ENDPOINT
+La dirección DNS única de tu broker de mensajería MQTT de AWS IoT Core.
+* **Comando para obtenerlo**:
+  ```bash
+  aws iot describe-endpoint --endpoint-type iot:Data-ATS
+  ```
+* **Salida JSON típica**:
+  ```json
+  {
+      "endpointAddress": "a1dqyzlqe79i10-ats.iot.us-west-1.amazonaws.com"
+  }
+  ```
+
+### E. Host de Base de Datos RDS (DB_HOST)
+La dirección de conexión interna DNS del clúster de base de datos relacional.
+* **Comando para obtenerlo**:
+  ```bash
+  aws rds describe-db-instances \
+    --query "DBInstances[*].Endpoint.Address" \
+    --output text
+  ```
+* **Resultado típico**:
+  `healthnet-db-instance.chiooewk8fd8.us-west-1.rds.amazonaws.com`
+
+---
+
+## 7. Aprovisionamiento Completo de la Infraestructura en AWS
+
+Secuencia ordenada de comandos CLI para crear toda la infraestructura serverless y de red en la región `us-west-1`:
+
+### Paso 1: Redes y Subredes (VPC)
+1. **Crear VPC**:
+   ```bash
+   aws ec2 create-vpc --cidr-block '10.0.0.0/16' --no-amazon-provided-ipv6-cidr-block --instance-tenancy 'default' --tag-specifications '{"ResourceType":"vpc","Tags":[{"Key":"Name","Value":"healthnet-vpc"}]}'
+   ```
+2. **Habilitar Hostnames DNS**:
+   ```bash
+   aws ec2 modify-vpc-attribute --vpc-id 'vpc-065feffb70147d508' --enable-dns-hostnames '{"Value":true}'
+   ```
+3. **Crear e Instalar Internet Gateway**:
+   ```bash
+   aws ec2 create-internet-gateway --tag-specifications '{"ResourceType":"internet-gateway","Tags":[{"Key":"Name","Value":"healthnet-vpc-igw"}]}'
+   aws ec2 attach-internet-gateway --internet-gateway-id 'igw-0de245731fd48e5cf' --vpc-id 'vpc-065feffb70147d508'
+   ```
+4. **Crear Subredes Privadas (Multi-AZ para Aurora)**:
+   ```bash
+   aws ec2 create-subnet --vpc-id vpc-065feffb70147d508 --cidr-block 10.0.128.0/20 --availability-zone us-west-1a --tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value=healthnet-vpc-subnet-private1-us-west-1a}]'
+   aws ec2 create-subnet --vpc-id vpc-065feffb70147d508 --cidr-block 10.0.144.0/20 --availability-zone us-west-1c --tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value=healthnet-vpc-subnet-private2-us-west-1c}]'
+   ```
+
+### Paso 2: Base de Datos Relacional (Amazon Aurora PostgreSQL)
+1. **Crear Subnet Group**:
+   ```bash
+   aws rds create-db-subnet-group --db-subnet-group-name healthnet-db-subnet-group --db-subnet-group-description "Subnet group for healthnet db" --subnet-ids subnet-026b12c27c6039124 subnet-069ad6dfa5bd0612f
+   ```
+2. **Crear Clúster DB**:
+   ```bash
+   aws rds create-db-cluster --db-cluster-identifier healthnet-aurora-cluster --engine aurora-postgresql --engine-version 15.4 --master-username postgres --master-user-password 'HealthNetSecurePass123!' --db-subnet-group-name healthnet-db-subnet-group --vpc-security-group-ids sg-01a1b01fbdf2be112
+   ```
+
+### Paso 3: Ingesta Serverless (AWS Lambda)
+1. **Crear Rol de Ejecución**:
+   ```bash
+   aws iam create-role --role-name healthnet-lambda-execution-role --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
+   ```
+2. **Crear Función Lambda dentro de la VPC**:
+   ```bash
+   aws lambda create-function --function-name healthnet-telemetry-ingest --runtime nodejs18.x --role arn:aws:iam::743337585043:role/healthnet-lambda-execution-role --handler index.handler --zip-file fileb://function.zip --vpc-config SubnetIds=subnet-026b12c27c6039124,subnet-069ad6dfa5bd0612f,SecurityGroupIds=sg-01a1b01fbdf2be112 --environment 'Variables={DB_HOST=healthnet-db-instance.chiooewk8fd8.us-west-1.rds.amazonaws.com,DB_USER=postgres,DB_PASSWORD=HealthNetSecurePass123!,DB_NAME=postgres}'
+   ```
+
+### Paso 4: Configurar Acceso Seguro a IoT (Cognito)
+1. **Crear User Pool**:
+   ```bash
+   aws cognito-idp create-user-pool --pool-name healthnet-user-pool --username-attributes email --policies 'PasswordPolicy={MinimumLength=8,RequireUppercase=true,RequireLowercase=true,RequireNumbers=true,RequireSymbols=false}'
+   ```
+2. **Crear App Client sin Secreto**:
+   ```bash
+   aws cognito-idp create-user-pool-client --user-pool-id 'us-west-1_pGyxBNhWT' --client-name healthnet-dashboard --no-generate-secret --explicit-auth-flows ALLOW_USER_PASSWORD_AUTH ALLOW_REFRESH_TOKEN_AUTH
+   ```
+3. **Crear Identity Pool**:
+   ```bash
+   aws cognito-identity create-identity-pool --identity-pool-name healthnet_identity_pool --allow-unauthenticated-identities --cognito-identity-providers ProviderName=cognito-idp.us-west-1.amazonaws.com/us-west-1_pGyxBNhWT,ClientId=44mekj043fj0rj1csugnfuln1e
+   ```
+4. **Crear Rol IAM de Cognito Autenticado**:
+   ```bash
+   aws iam create-role --role-name healthnet-cognito-auth-role --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Federated":"cognito-identity.amazonaws.com"},"Action":"sts:AssumeRoleWithWebIdentity","Condition":{"StringEquals":{"cognito-identity.amazonaws.com:aud":"us-west-1:9cb26dab-294e-4d39-ada4-0dace6e9492a"},"ForAnyValue:StringLike":{"cognito-identity.amazonaws.com:amr":"authenticated"}}}]}'
+   ```
+5. **Asociar permisos MQTT de IoT Core al Rol**:
+   ```bash
+   aws iam put-role-policy --role-name healthnet-cognito-auth-role --policy-name healthnet-cognito-iot-policy --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["iot:Connect","iot:Subscribe","iot:Receive","iot:Publish"],"Resource":["arn:aws:iot:us-west-1:743337585043:client/healthnet-*","arn:aws:iot:us-west-1:743337585043:topic/healthnet/*","arn:aws:iot:us-west-1:743337585043:topicfilter/healthnet/*"]}]}'
+   ```
+6. **Vincular Rol al Identity Pool**:
+   ```bash
+   aws cognito-identity set-identity-pool-roles --identity-pool-id us-west-1:9cb26dab-294e-4d39-ada4-0dace6e9492a --roles authenticated=arn:aws:iam::743337585043:role/healthnet-cognito-auth-role
+   ```
+
+---
+
+## 8. Justificación de Diseño y Vinculación Funcional
+
+### A. Vinculación de IDs del `.env` con las funciones del Frontend
+* **`VITE_COGNITO_USER_POOL_ID` & `VITE_COGNITO_APP_CLIENT_ID`**: Utilizadas por `src/services/auth.ts` y el hook `useAuth.ts` para verificar y bloquear el enrutador de React (`ProtectedRoute.tsx`) cuando el token expira o el usuario no está autenticado.
+* **`VITE_COGNITO_IDENTITY_POOL_ID`**: Utilizada en `src/services/iot.ts` para realizar el intercambio criptográfico y obtener las credenciales de seguridad efímeras (Access Key, Secret Key y Session Token) antes del handshake de WebSockets.
+* **`VITE_IOT_ENDPOINT`**: Configura la dirección del socket MQTT a la cual se conecta el cliente MQTT de Amplify. Posibilita la recepción reactiva en tiempo real sobre la suscripción MQTT de telemetría.
+
+### B. Justificación de Decisiones de Diseño e Implementación
+* **Unificación en "Pacientes y Brazalete" (ProfilePage.tsx)**: Los médicos manejan múltiples pacientes en paralelo, por lo que separar las opciones en páginas independientes requería navegación excesiva. Un selector único centraliza los datos fisiológicos del paciente, la configuración de umbrales clínicos del brazalete, el estado del ESP32 y una vista previa del tema del reloj en una sola pantalla visualmente integrada.
+* **Umbrales Fisiológicos Dinámicos por Paciente**: Para evitar riesgos clínicos, eliminamos el uso de umbrales estáticos y globales. Ahora, cada paciente cuenta con sus propios límites clínicos (Ritmo Cardíaco Mín/Máx y Temp Máx) configurados en el estado reactivo de Zustand y persistidos localmente. La telemetría en vivo se evalúa en base a estos parámetros individuales, permitiendo disparar alertas adaptadas a la condición médica particular de cada persona.
+* **Estructura de Doble Página en Reporte PDF y Control de Slices**: El reporte clínico generado con html2canvas + jsPDF sufría cortes de tablas e imágenes a mitad de página. Rediseñamos el template (`DeviceReportTemplate.tsx`) para dividir la estructura en dos contenedores fijos de 1120px (proporción A4 exacta). La Página 1 contiene el resumen analítico y los gráficos históricos de Recharts. La Página 2 contiene el registro de caídas e historial detallado. Esto garantiza que la tabla clínica empiece de manera limpia al inicio de la segunda página sin cortes accidentales.
+* **Remoción del Acelerómetro y Balanceo de Gráficas**: Los datos crudos de acelerómetro (ejes X, Y, Z) generaban ruido visual al usuario médico (quien solo requiere saber si ocurrió una caída o no). Omitimos esta cuadrícula de la vista de monitoreo e integramos en su lugar un gráfico histórico de temperatura de tamaño compacto idéntico al de ritmo cardíaco. Esto balancea simétricamente la interfaz y prioriza los signos vitales críticos.
+
+---
+
+## 9. Registro de Problemas y Troubleshooting (AWS/VM)
+
+| Problema / Diagnóstico | Causa Raíz | Comando CLI Solución |
+| :--- | :--- | :--- |
+| Al iniciar sesión, Cognito retorna un error de estado temporal del usuario | El administrador se creó en estado temporal `FORCE_CHANGE_PASSWORD` | `aws cognito-idp admin-set-user-password --user-pool-id us-west-1_pGyxBNhWT --username admin@healthnet.com --password 'Admin1234!' --permanent` |
+| El WebSocket se abre (HTTP 101) pero se desconecta de inmediato de AWS IoT Core, entrando en bucle infinito | Las credenciales temporales otorgadas por Cognito Identity Pool no tienen permisos (políticas) asociados dentro del broker de IoT Core | 1. Obtener ID Identidad:<br>`aws cognito-identity list-identities --identity-pool-id us-west-1:9cb26dab-294e-4d39-ada4-0dace6e9492a --max-results 10`<br><br>2. Adjuntar política:<br>`aws iot attach-policy --policy-name healthnet-device-policy --target "us-west-1:ad125f69-93c4-c6c4-dc15-808df2efa4f8"` |
+| Error `ResourceNotFoundException` al ejecutar AttachPolicy en la terminal | El nombre de la política proporcionado no coincide con el recurso creado en AWS, o la región de ejecución de CLI es distinta | Verificar que la política se llame `healthnet-device-policy` y que se esté ejecutando sobre el endpoint correcto en `us-west-1` |
+
+---
+
+## 10. Comandos del Proyecto (npm)
 
 En el directorio raíz del proyecto, puedes ejecutar los siguientes scripts npm:
 
@@ -250,24 +300,22 @@ En el directorio raíz del proyecto, puedes ejecutar los siguientes scripts npm:
   npm run dev
   ```
   Levanta un servidor local en `http://localhost:5173` con soporte para recarga rápida de módulos (HMR).
-
 * **Construir para producción**:
   ```bash
   npm run build
   ```
   Ejecuta la validación de tipos de TypeScript (`tsc`) y compila la aplicación optimizada para producción en la carpeta `dist/`.
-
 * **Vista previa de la compilación**:
   ```bash
   npm run preview
   ```
-  Levanta un servidor local ligero para servir la carpeta `dist/` compilada y probarla localmente.
+  Servidor local ligero para servir la carpeta `dist/` compilada y probarla localmente.
 
 ---
 
-## 9. Reglas de Alerta y Telemetría
+## 11. Reglas de Alerta y Telemetría
 
-El archivo [types/index.ts](file:///c:/Users/junio/Claude/Projects/HealtNet/healthnet-dashboard/src/types/index.ts) define los umbrales estándar utilizados por el dashboard para disparar alertas inmediatas a los usuarios en la interfaz:
+Los umbrales estándar (límites por defecto) utilizados por el dashboard al inicializar un nuevo paciente son:
 
 * **Ritmo Cardíaco Mínimo**: `50` bpm.
 * **Ritmo Cardíaco Máximo**: `110` bpm.
@@ -275,4 +323,4 @@ El archivo [types/index.ts](file:///c:/Users/junio/Claude/Projects/HealtNet/heal
 * **Capacidad de Historial**: Mantiene las últimas `60` lecturas de telemetría en memoria por dispositivo para construir gráficos de tendencia suaves.
 * **Detección de Caídas**: Ocurre en base a la flag `fallDetected` enviada por el acelerómetro del dispositivo.
 
-Cualquier telemetría que rompa estos umbrales generará una alerta en tiempo real en la barra lateral del Dashboard, requiriendo atención o reconocimiento manual para su eliminación de las notificaciones activas.
+Cualquier telemetría que rompa los umbrales configurados para el paciente correspondiente generará una alerta en tiempo real en la barra lateral del Dashboard, requiriendo atención o reconocimiento manual para su eliminación de las notificaciones activas.
