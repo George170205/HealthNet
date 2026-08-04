@@ -248,13 +248,13 @@ export default function DeviceReportTemplate({ device }: Props) {
           <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider mb-2">
             Gráficos Históricos (Últimas lecturas)
           </h3>
-          <div className="space-y-4">
-            <div className="border border-slate-200 rounded-xl p-3 bg-slate-50">
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <div className="border border-slate-200 rounded-xl p-3 bg-slate-50" style={{ marginBottom: '30px' }}>
               <p className="text-[11px] font-bold text-slate-600 mb-2 flex items-center gap-1">
                 <Heart size={12} className="text-red-500" fill="currentColor" /> Histórico del Ritmo Cardíaco
               </p>
               <div className="w-full" style={{ height: '140px' }}>
-                <HeartRateChart history={history.slice(-30)} />
+                <HeartRateChart history={history.slice(-30)} height={140} />
               </div>
             </div>
 
@@ -263,7 +263,7 @@ export default function DeviceReportTemplate({ device }: Props) {
                 <Thermometer size={12} className="text-blue-500" /> Histórico de Temperatura Corporal
               </p>
               <div className="w-full" style={{ height: '140px' }}>
-                <TempChart history={history.slice(-30)} />
+                <TempChart history={history.slice(-30)} height={140} />
               </div>
             </div>
           </div>

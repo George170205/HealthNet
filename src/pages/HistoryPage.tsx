@@ -73,10 +73,18 @@ export default function HistoryPage() {
       csvContent += `${d.time},${d.bpm},${d.temp}\n`
     })
 
+    const now = new Date()
+    const day = String(now.getDate()).padStart(2, '0')
+    const month = String(now.getMonth() + 1).padStart(2, '0')
+    const year = now.getFullYear()
+    const hours = String(now.getHours()).padStart(2, '0')
+    const minutes = String(now.getMinutes()).padStart(2, '0')
+    const timestampStr = `${day}-${month}-${year}_${hours}-${minutes}`
+
     const encodedUri = encodeURI(csvContent)
     const link = document.createElement('a')
     link.setAttribute('href', encodedUri)
-    link.setAttribute('download', `Historial_${device.patientName.replace(/\s+/g, '_')}_${range}.csv`)
+    link.setAttribute('download', `Historial_${device.patientName.replace(/\s+/g, '_')}_${timestampStr}.csv`)
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)

@@ -35,10 +35,11 @@ export default function ProfilePage() {
 
   const [profileSuccess, setProfileSuccess] = useState(false)
   const [configSuccess, setConfigSuccess] = useState(false)
+  const [loadedId, setLoadedId] = useState('')
 
-  // Sync state when selected device changes
+  // Sync state only when the selected device changes (not on every telemetry packet tick)
   useEffect(() => {
-    if (device) {
+    if (device && device.deviceId !== loadedId) {
       setProfileForm({
         name: device.profile?.name || '',
         age: device.profile?.age || '',
@@ -55,8 +56,9 @@ export default function ProfilePage() {
         setWatchTheme(device.config.watchTheme)
         setNotificationsActive(device.config.notificationsActive)
       }
+      setLoadedId(device.deviceId)
     }
-  }, [selectedId, device])
+  }, [device, loadedId])
 
   if (devices.length === 0) {
     return (
