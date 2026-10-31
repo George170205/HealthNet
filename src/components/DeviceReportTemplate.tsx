@@ -229,7 +229,7 @@ export default function DeviceReportTemplate({ device }: Props) {
                 <div>
                   <p className="text-[9px] text-slate-400 font-bold uppercase">Actual</p>
                   <p className={`text-base font-black ${tempOk ? 'text-slate-800' : 'text-red-600'}`}>
-                    {latest.temperature.toFixed(1)}
+                    {latest.temperature !== undefined && latest.temperature !== null ? latest.temperature.toFixed(1) : '--'}
                   </p>
                 </div>
                 <div>

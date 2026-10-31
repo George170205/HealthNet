@@ -45,9 +45,10 @@ exports.handler = async (event) => {
     const httpMethod = event.httpMethod;
     const pathParameters = event.pathParameters || {};
     const deviceId = pathParameters.deviceId;
+    const path = event.path || '';
 
     // GET /patients (list all patients)
-    if (httpMethod === 'GET' && !deviceId) {
+    if (httpMethod === 'GET' && !deviceId && path === '/patients') {
       const result = await db.query('SELECT * FROM patients ORDER BY name ASC');
       return {
         statusCode: 200,
@@ -57,7 +58,7 @@ exports.handler = async (event) => {
     }
 
     // GET /patients/{deviceId} (get specific patient)
-    if (httpMethod === 'GET' && deviceId) {
+    if (httpMethod === 'GET' && deviceId && path.startsWith('/patients/')) {
       const result = await db.query('SELECT * FROM patients WHERE device_id = $1', [deviceId]);
       if (result.rows.length === 0) {
         return {
@@ -74,7 +75,7 @@ exports.handler = async (event) => {
     }
 
     // POST/PUT /patients (upsert patient)
-    if (httpMethod === 'POST') {
+    if (httpMethod === 'POST' && path.startsWith('/patients')) {
       const body = JSON.parse(event.body || '{}');
       const targetDeviceId = deviceId || body.deviceId;
 
@@ -134,7 +135,7 @@ exports.handler = async (event) => {
     }
 
     // DELETE /patients/{deviceId} (delete specific patient)
-    if (httpMethod === 'DELETE' && deviceId) {
+    if (httpMethod === 'DELETE' && deviceId && path.startsWith('/patients')) {
       const result = await db.query('DELETE FROM patients WHERE device_id = $1 RETURNING *', [deviceId]);
       if (result.rows.length === 0) {
         return {
@@ -147,6 +148,89 @@ exports.handler = async (event) => {
         statusCode: 200,
         headers,
         body: JSON.stringify({ message: `Patient with deviceId ${deviceId} deleted successfully`, patient: result.rows[0] })
+      };
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // ALERTS ENDPOINTS
+    // ─────────────────────────────────────────────────────────
+
+    // GET /alerts (fetch all alerts)
+    if (httpMethod === 'GET' && path === '/alerts') {
+      const result = await db.query('SELECT * FROM alerts ORDER BY timestamp DESC LIMIT 500');
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify(result.rows)
+      };
+    }
+
+    // POST /alerts (create an alert)
+    if (httpMethod === 'POST' && path === '/alerts') {
+      const body = JSON.parse(event.body || '{}');
+      if (!body.id || !body.deviceId || !body.type || !body.message || !body.timestamp) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ message: 'Missing required alert fields' })
+        };
+      }
+
+      const query = `
+        INSERT INTO alerts (id, device_id, type, message, timestamp, acknowledged)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (id) DO NOTHING
+        RETURNING *;
+      `;
+      const values = [
+        body.id,
+        body.deviceId,
+        body.type,
+        body.message,
+        body.timestamp,
+        body.acknowledged || false
+      ];
+      
+      const result = await db.query(query, values);
+      return {
+        statusCode: 201,
+        headers,
+        body: JSON.stringify(result.rows[0] || body)
+      };
+    }
+
+    // PUT /alerts/{alertId}/acknowledge
+    if (httpMethod === 'PUT' && path.match(/^\/alerts\/[^\/]+\/acknowledge$/)) {
+      const alertId = path.split('/')[2];
+      const result = await db.query(
+        'UPDATE alerts SET acknowledged = true, updated_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING *',
+        [alertId]
+      );
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify(result.rows[0] || { id: alertId, acknowledged: true })
+      };
+    }
+
+    // DELETE /alerts/{deviceId} (clear alerts for a specific device)
+    if (httpMethod === 'DELETE' && path.match(/^\/alerts\/[^\/]+$/)) {
+      const targetDeviceId = path.split('/')[2];
+      await db.query('DELETE FROM alerts WHERE device_id = $1', [targetDeviceId]);
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ message: `Alerts cleared for device ${targetDeviceId}` })
+      };
+    }
+
+    // DELETE /alerts (clear all alerts)
+    if (httpMethod === 'DELETE' && path === '/alerts') {
+      await db.query('DELETE FROM alerts');
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ message: 'All alerts cleared' })
       };
     }
 

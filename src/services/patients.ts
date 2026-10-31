@@ -1,5 +1,5 @@
 import { AWS_CONFIG, isApiConfigured } from '../config/aws'
-import type { UserProfile, AlertConfig } from '../types'
+import type { UserProfile, AlertConfig, Alert } from '../types'
 
 export interface ApiPatient {
   device_id: string
@@ -149,6 +149,83 @@ class PatientsService {
     } catch (err) {
       console.error(`[PatientsService] Error eliminando paciente ${deviceId}:`, err)
       throw err
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // ALERTS
+  // ─────────────────────────────────────────────────────────────────
+
+  async getAlerts(): Promise<Alert[]> {
+    if (!isApiConfigured()) return []
+    try {
+      const response = await fetch(`${AWS_CONFIG.apiEndpoint}/alerts`, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' }
+      })
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
+      const data = await response.json()
+      // Adapt boolean in case DB returned something else
+      return data.map((a: any) => ({
+        id: a.id,
+        deviceId: a.device_id,
+        type: a.type,
+        message: a.message,
+        timestamp: Number(a.timestamp),
+        acknowledged: Boolean(a.acknowledged),
+        status: a.acknowledged ? 'attended' : 'pending'
+      }))
+    } catch (err) {
+      console.error('[PatientsService] Error obteniendo alertas:', err)
+      return []
+    }
+  }
+
+  async saveAlert(alert: Alert): Promise<void> {
+    if (!isApiConfigured()) return
+    try {
+      const payload = {
+        id: alert.id,
+        deviceId: alert.deviceId,
+        type: alert.type,
+        message: alert.message,
+        timestamp: alert.timestamp,
+        acknowledged: alert.acknowledged
+      }
+      const response = await fetch(`${AWS_CONFIG.apiEndpoint}/alerts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
+    } catch (err) {
+      console.error('[PatientsService] Error guardando alerta:', err)
+    }
+  }
+
+  async acknowledgeAlert(alertId: string): Promise<void> {
+    if (!isApiConfigured()) return
+    try {
+      const response = await fetch(`${AWS_CONFIG.apiEndpoint}/alerts/${alertId}/acknowledge`, {
+        method: 'PUT'
+      })
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
+    } catch (err) {
+      console.error(`[PatientsService] Error reconociendo alerta ${alertId}:`, err)
+    }
+  }
+
+  async clearAlerts(deviceId?: string): Promise<void> {
+    if (!isApiConfigured()) return
+    try {
+      const url = deviceId 
+        ? `${AWS_CONFIG.apiEndpoint}/alerts/${deviceId}`
+        : `${AWS_CONFIG.apiEndpoint}/alerts`
+        
+      const response = await fetch(url, { method: 'DELETE' })
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
+    } catch (err) {
+      console.error('[PatientsService] Error borrando alertas:', err)
     }
   }
 }

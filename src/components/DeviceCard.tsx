@@ -52,7 +52,15 @@ export default function DeviceCard({ device, expanded, onToggleExpanded }: Props
   const hrOk = latest.heartRate >= hrMin && latest.heartRate <= hrMax
   const tempOk = latest.temperature <= tempMax
 
-  const lastSeen = formatDistanceToNow(device.lastSeen, { addSuffix: true, locale: es })
+  let lastSeen = 'Hace un momento'
+  try {
+    const ts = Number(device.lastSeen)
+    if (!isNaN(ts) && ts > 0 && ts < 8.64e15) {
+      lastSeen = formatDistanceToNow(ts, { addSuffix: true, locale: es })
+    }
+  } catch (e) {
+    console.error('[DeviceCard] Error formateando lastSeen:', e)
+  }
 
   const downloadPdf = async () => {
     setGeneratingPdf(true)
@@ -185,7 +193,7 @@ export default function DeviceCard({ device, expanded, onToggleExpanded }: Props
           </div>
           <div className="flex items-baseline gap-1">
             <span className={`text-2xl font-black ${tempOk ? 'text-slate-800 dark:text-white' : 'text-red-500'}`}>
-              {latest.temperature.toFixed(1)}
+              {latest.temperature !== undefined && latest.temperature !== null ? latest.temperature.toFixed(1) : '--'}
             </span>
             <span className="text-xs text-slate-400">°C</span>
           </div>

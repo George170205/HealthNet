@@ -42,3 +42,18 @@ CREATE OR REPLACE TRIGGER update_patients_updated_at
     BEFORE UPDATE ON patients
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
+
+-- ──────────────────────────────────────────────────────────────────────
+-- ALERTS TABLE
+-- ──────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS alerts (
+    id VARCHAR(100) PRIMARY KEY,
+    device_id VARCHAR(50) REFERENCES patients(device_id) ON DELETE CASCADE,
+    type VARCHAR(50) NOT NULL,
+    message TEXT NOT NULL,
+    timestamp BIGINT NOT NULL,
+    acknowledged BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_alerts_device_id ON alerts (device_id);

@@ -40,7 +40,7 @@ export default function MonitoringPage() {
     : latest?.heartRate ?? 0
   const avgTemp = history.length
     ? (history.reduce((s, h) => s + h.temperature, 0) / history.length).toFixed(1)
-    : latest?.temperature.toFixed(1) ?? '0.0'
+    : (latest?.temperature !== undefined && latest?.temperature !== null ? latest.temperature.toFixed(1) : '0.0')
 
   return (
     <div className="space-y-6">
@@ -123,7 +123,7 @@ export default function MonitoringPage() {
 
               <div className="flex items-baseline gap-2 mb-6">
                 <span className="text-5xl font-black text-slate-900 dark:text-white leading-none tracking-tight">
-                  {latest.temperature.toFixed(1)}
+                  {latest.temperature !== undefined && latest.temperature !== null ? latest.temperature.toFixed(1) : '--'}
                 </span>
                 <span className="text-sm font-bold text-slate-400">°C actual</span>
               </div>

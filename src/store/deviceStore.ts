@@ -133,8 +133,15 @@ export const useDeviceStore = create<DeviceStore>((set) => ({
 
   loadPatientsFromDb: async () => {
     try {
-      const patients = await patientsService.getPatients()
-      if (patients.length === 0) return
+      const [patients, dbAlerts] = await Promise.all([
+        patientsService.getPatients(),
+        patientsService.getAlerts()
+      ])
+      
+      if (patients.length === 0) {
+        set({ alerts: dbAlerts })
+        return
+      }
 
       set((state) => {
         const updatedDevices = { ...state.devices }
@@ -148,6 +155,9 @@ export const useDeviceStore = create<DeviceStore>((set) => ({
             config: p.config
           }
           saveSettingsMap(settingsMap)
+          
+          // Filtrar alertas para este dispositivo
+          const deviceAlerts = dbAlerts.filter(a => a.deviceId === p.deviceId)
 
           updatedDevices[p.deviceId] = {
             deviceId: p.deviceId,
@@ -156,12 +166,12 @@ export const useDeviceStore = create<DeviceStore>((set) => ({
             lastSeen: prev?.lastSeen ?? 0,
             latest: prev?.latest ?? null,
             history: prev?.history ?? [],
-            alerts: prev?.alerts ?? [],
+            alerts: deviceAlerts,
             profile: p.profile,
             config: p.config,
           }
         })
-        return { devices: updatedDevices }
+        return { devices: updatedDevices, alerts: dbAlerts }
       })
     } catch (err) {
       console.error('[Store] Error cargando pacientes de la BD:', err)
@@ -169,6 +179,13 @@ export const useDeviceStore = create<DeviceStore>((set) => ({
   },
 
   upsertTelemetry: (data) => {
+    // Validar y sanitizar timestamp para evitar RangeError (ej. si el ESP32 no tiene NTP activo y manda -1 o desborda)
+    let ts = Number(data.timestamp)
+    if (isNaN(ts) || ts <= 0 || ts > 8.64e15) {
+      ts = Date.now()
+    }
+    data.timestamp = ts
+
     set((state) => {
       const prev = state.devices[data.deviceId]
       
@@ -206,6 +223,12 @@ export const useDeviceStore = create<DeviceStore>((set) => ({
 
       const patientName = settings.profile.name || data.patientName || data.deviceId
       const newAlerts = detectAlerts(prev, data, settings.config, patientName)
+      
+      // Guardar nuevas alertas en la base de datos de manera asíncrona
+      newAlerts.forEach(alert => {
+        patientsService.saveAlert(alert)
+          .catch(err => console.error('[Store] Error guardando nueva alerta:', err))
+      })
 
       const history = [
         ...(prev?.history ?? []),
@@ -232,6 +255,10 @@ export const useDeviceStore = create<DeviceStore>((set) => ({
   },
 
   acknowledgeAlert: (alertId) => {
+    // Guardar acuse de recibo en BD
+    patientsService.acknowledgeAlert(alertId)
+      .catch(err => console.error('[Store] Error reconociendo alerta:', err))
+
     set((state) => {
       const updatedAlerts = state.alerts.map(a =>
         a.id === alertId ? { ...a, acknowledged: true, status: 'attended' as const } : a
@@ -250,6 +277,10 @@ export const useDeviceStore = create<DeviceStore>((set) => ({
   },
 
   clearAlerts: (deviceId) => {
+    // Borrar de la BD
+    patientsService.clearAlerts(deviceId)
+      .catch(err => console.error('[Store] Error limpiando alertas:', err))
+
     set((state) => {
       if (deviceId) {
         const updatedDevices = { ...state.devices }
